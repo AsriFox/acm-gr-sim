@@ -22,4 +22,4 @@ transmitting part of the program has the following submodules:
 4. Framing on the physical layer - PLHEADER for detection and signalling of the ACM;
 5. Quadrature modulation.
 
-This project uses [GNU Radio](https://gnuradio.org) libraries and [igorauad/gr-dvbs2rx](https://igorauad.github.io/gr-dvbs2rx) OOT blocks to simulate the protocol and collect frame error statistics through a noisy channel.
+This project uses [GNU Radio](https://gnuradio.org), [drmpeg/gr-dvbs2](https://github.com/drmpeg/gr-dvbs2) and [igorauad/gr-dvbs2rx](https://github.com/igorauad/gr-dvbs2rx) OOT blocks to simulate the protocol and collect frame error statistics through a noisy channel.
