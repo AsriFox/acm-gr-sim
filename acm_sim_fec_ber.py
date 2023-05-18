@@ -43,6 +43,12 @@ class acm_sim_fec_ber(gr.top_block):
         self.add_noise = blocks.add_cc()
         self.throttle = blocks.throttle(gr.sizeof_gr_complex*1, sym_rate, ignore_tags=True)
         self.rx_hier = rx_hier(frame_size, modcod)
+
+        self.buffer_in = blocks.throttle(gr.sizeof_char*1, sym_rate*4, ignore_tags=True)
+        self.buffer_in.set_min_output_buffer(64800*32)
+        self.buffer_out = blocks.throttle(gr.sizeof_char*1, sym_rate*4, ignore_tags=True)
+        self.buffer_out.set_min_output_buffer(64800*32)
+
         self.count_ber = fec.ber_bf(False, 100, -7.0)
         self.probe_ber = blocks.probe_signal_f()
         def _ber_probe():
@@ -61,7 +67,7 @@ class acm_sim_fec_ber(gr.top_block):
         _ber_thread.start()
 
         self.probe_rate = blocks.probe_rate(gr.sizeof_char*1, 10.0, 0.15)
-        self.print_rate = blocks.message_debug()
+        # self.print_rate = blocks.message_debug()
 
         ##################################################
         # Connections
@@ -72,11 +78,14 @@ class acm_sim_fec_ber(gr.top_block):
         self.connect((self.noise_source, 0), (self.add_noise, 1))
         self.connect((self.add_noise, 0), (self.throttle, 0))
         self.connect((self.throttle, 0), (self.rx_hier, 0))
-        self.connect((self.rx_hier, 0), (self.count_ber, 1))
-        self.connect((self.test_limiter, 0), (self.count_ber, 0))
-        self.connect((self.count_ber, 0), (self.probe_ber, 0))
         self.connect((self.rx_hier, 0), (self.probe_rate, 0))
-        self.msg_connect((self.probe_rate, 'rate'), (self.print_rate, 'print'))
+        # self.msg_connect((self.probe_rate, 'rate'), (self.print_rate, 'print'))
+        self.connect((self.rx_hier, 0), (self.buffer_out, 0))
+        self.connect((self.test_limiter, 0), (self.buffer_in, 0))
+        
+        self.connect((self.buffer_in, 0), (self.count_ber, 0))
+        self.connect((self.buffer_out, 0), (self.count_ber, 1))
+        self.connect((self.count_ber, 0), (self.probe_ber, 0))
 
     def get_modcod(self):
         return self.modcod
@@ -101,13 +110,13 @@ if __name__ == '__main__':
 
     parser = ArgumentParser(description='DVB-S2 BCH/LDPC BER Simulation')
     parser.add_argument(
-        "--esn0-db", dest="esn0_db", type=eng_float, default=eng_notation.num_to_str(0.0),
+        "--esn0-db", dest="esn0_db", type=eng_float, default=eng_notation.num_to_str(-1.0),
         help="Set SNR (or Es/N0) in dB [default=%(default)r]")
     parser.add_argument(
         "-f", "--frame-size", dest="frame_size", type=str, default='normal',
         help="Set FECFRAME size [default=%(default)r]")
     parser.add_argument(
-        "-m", "--modcod", dest="modcod", type=str, default='QPSK_1/2',
+        "-m", "--modcod", dest="modcod", type=str, default='QPSK_1/3',
         help="Set MODCOD [default=%(default)r]")
     parser.add_argument(
         "-r", "--sym-rate", dest="sym_rate", type=intx, default=1000000,
