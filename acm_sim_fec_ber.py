@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
+#
+# Copyright 2023 AsriFox.
 #
 # SPDX-License-Identifier: GPL-3.0
 #
@@ -9,16 +8,14 @@
 # Description: DVB-S2 BCH/LDPC BER Simulation
 # GNU Radio version: 3.10.1.1
 
-from gnuradio import analog, blocks, dtv, fec, gr
-from gnuradio import dvbs2rx
-import dvbs2
-from acm_adapter import acm_adapter
-import tx_params
+from gnuradio import analog, blocks, fec, gr
+from tx_hier import tx_hier
+from rx_hier import rx_hier
 from math import sqrt
 import threading, time
 
 class acm_sim_fec_ber(gr.top_block):
-    def __init__(self, sym_rate=1000000, esn0_db=0, frame_size='normal', modcod='QPSK_1/4', test_size=2000000):
+    def __init__(self, sym_rate=1000000, esn0_db=0, frame_size='normal', modcod='QPSK_1/4', test_size=12500):
         gr.top_block.__init__(self, 'DVB-S2 ACM Simulaion', catch_exceptions=True)
 
         ##################################################
@@ -33,49 +30,19 @@ class acm_sim_fec_ber(gr.top_block):
         ##################################################
         # Variables
         ##################################################
-        constellation, code_rate = modcod.split('_')
-        self.constellation = constellation
-        self.code_rate = code_rate
         self.N0 = N0 = 10 ** (-0.1 * esn0_db)
         self.ber = 0
-
-        tx_framesize, tx_code_rate, tx_constellation = tx_params.translate('DVB-S2', frame_size, code_rate, constellation)
-        self.tx_framesize = tx_framesize
-        self.tx_code_rate = tx_code_rate
-        self.tx_constellation = tx_constellation
-
-        rx_standard, rx_framesize, rx_code_rate, rx_constellation = dvbs2rx.params.translate('DVB-S2', frame_size, code_rate, constellation)
-        self.rx_standard = rx_standard
-        self.tx_framesize = rx_framesize
-        self.rx_code_rate = rx_code_rate
-        self.rx_constellation = rx_constellation
-
 
         ##################################################
         # Blocks
         ##################################################
         self.random_source = analog.random_uniform_source_b(0, 256, 0)
         self.test_limiter = blocks.head(gr.sizeof_char*1, test_size)
-        self.unpack_bits = blocks.unpack_k_bits_bb(8)
-
-        self.acm_adapter = acm_adapter(tx_framesize, tx_code_rate, tx_constellation, dvbs2.PILOTS_ON, 0, dvbs2.RO_0_20)
-        self.encoder_bch = dvbs2.bch_bb()
-        self.encoder_ldpc = dvbs2.ldpc_bb()
-        self.interleaver = dvbs2.interleaver_bb()
-        self.modulator = dvbs2.modulator_bc()
-
+        self.tx_hier = tx_hier(frame_size, modcod)
         self.noise_source = analog.fastnoise_source_c(analog.GR_GAUSSIAN, sqrt(N0), 0, 8192)
         self.add_noise = blocks.add_cc()
         self.throttle = blocks.throttle(gr.sizeof_gr_complex*1, sym_rate, ignore_tags=True)
-
-        self.decoder_ldpc = dvbs2rx.ldpc_decoder_cb(
-            rx_standard, rx_framesize, rx_code_rate, rx_constellation,
-            dvbs2rx.OM_MESSAGE, dvbs2rx.INFO_OFF, max_trials=25, debug_level=0)
-        self.decoder_bch = dvbs2rx.bch_decoder_bb(
-            rx_standard, rx_framesize, rx_code_rate,
-            dvbs2rx.OM_MESSAGE, debug_level=0)
-
-        self.pack_bits = blocks.pack_k_bits_bb(8)
+        self.rx_hier = rx_hier(frame_size, modcod)
         self.count_ber = fec.ber_bf(False, 100, -7.0)
         self.probe_ber = blocks.probe_signal_f()
         def _ber_probe():
@@ -94,40 +61,28 @@ class acm_sim_fec_ber(gr.top_block):
         _ber_thread.start()
 
         self.probe_rate = blocks.probe_rate(gr.sizeof_char*1, 10.0, 0.15)
-        # self.print_rate = blocks.message_debug()
+        self.print_rate = blocks.message_debug()
 
         ##################################################
         # Connections
         ##################################################
-        self.connect(
-            (self.random_source, 0),
-            (self.test_limiter, 0), 
-            (self.unpack_bits, 0), 
-            (self.encoder_bch, 0),
-            (self.encoder_ldpc, 0),
-            (self.interleaver, 0),
-            (self.modulator, 0),
-            (self.add_noise, 0)
-        )
+        self.connect((self.random_source, 0), (self.test_limiter, 0))
+        self.connect((self.test_limiter, 0), (self.tx_hier, 0))
+        self.connect((self.tx_hier, 0), (self.add_noise, 0))
         self.connect((self.noise_source, 0), (self.add_noise, 1))
-        self.connect(
-            (self.add_noise, 0), 
-            (self.throttle, 0),
-            (self.decoder_ldpc, 0),
-            (self.decoder_bch, 0),
-            (self.pack_bits, 0),
-            (self.count_ber, 1)
-        )
+        self.connect((self.add_noise, 0), (self.throttle, 0))
+        self.connect((self.throttle, 0), (self.rx_hier, 0))
+        self.connect((self.rx_hier, 0), (self.count_ber, 1))
         self.connect((self.test_limiter, 0), (self.count_ber, 0))
         self.connect((self.count_ber, 0), (self.probe_ber, 0))
-        self.connect((self.unpack_bits, 0), (self.probe_rate, 0))
-        # self.msg_connect((self.probe_rate, 'rate'), (self.print_rate, 'print'))
+        self.connect((self.rx_hier, 0), (self.probe_rate, 0))
+        self.msg_connect((self.probe_rate, 'rate'), (self.print_rate, 'print'))
 
     def get_modcod(self):
         return self.modcod
 
     def get_detected_snr(self):
-        return self.decoder_ldpc.get_snr()
+        return self.rx_hier.get_detected_snr()
 
     def get_ber(self):
         return self.ber
@@ -152,13 +107,13 @@ if __name__ == '__main__':
         "-f", "--frame-size", dest="frame_size", type=str, default='normal',
         help="Set FECFRAME size [default=%(default)r]")
     parser.add_argument(
-        "-m", "--modcod", dest="modcod", type=str, default='QPSK_1/4',
+        "-m", "--modcod", dest="modcod", type=str, default='QPSK_1/2',
         help="Set MODCOD [default=%(default)r]")
     parser.add_argument(
-        "-r", "--sym-rate", dest="sym_rate", type=intx, default=20000000,
+        "-r", "--sym-rate", dest="sym_rate", type=intx, default=1000000,
         help="Set symbol rate in baud [default=%(default)r]")
     parser.add_argument(
-        "-t", "--test-size", dest="test_size", type=intx, default=20000000,
+        "-t", "--test-size", dest="test_size", type=intx, default=1000000,
         help="Set test size in symbols [default=%(default)r]")
 
     options = parser.parse_args()
