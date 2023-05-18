@@ -11,6 +11,8 @@
 
 from gnuradio import analog, blocks, dtv, fec, gr
 from gnuradio import dvbs2rx
+import dvbs2
+from acm_adapter import acm_adapter
 import tx_params
 from math import sqrt
 import threading, time
@@ -37,8 +39,7 @@ class acm_sim_fec_ber(gr.top_block):
         self.N0 = N0 = 10 ** (-0.1 * esn0_db)
         self.ber = 0
 
-        tx_standard, tx_framesize, tx_code_rate, tx_constellation = tx_params.translate('DVB-S2', frame_size, code_rate, constellation)
-        self.tx_standard = tx_standard
+        tx_framesize, tx_code_rate, tx_constellation = tx_params.translate('DVB-S2', frame_size, code_rate, constellation)
         self.tx_framesize = tx_framesize
         self.tx_code_rate = tx_code_rate
         self.tx_constellation = tx_constellation
@@ -57,10 +58,11 @@ class acm_sim_fec_ber(gr.top_block):
         self.test_limiter = blocks.head(gr.sizeof_char*1, test_size)
         self.unpack_bits = blocks.unpack_k_bits_bb(8)
 
-        self.encoder_bch = dtv.dvb_bch_bb(tx_standard, tx_framesize, tx_code_rate)
-        self.encoder_ldpc = dtv.dvb_ldpc_bb(tx_standard, tx_framesize, tx_code_rate, tx_constellation)
-        self.interleaver = dtv.dvbs2_interleaver_bb(tx_framesize, tx_code_rate, tx_constellation)
-        self.modulator = dtv.dvbs2_modulator_bc(tx_framesize, tx_code_rate, tx_constellation, dtv.INTERPOLATION_OFF)
+        self.acm_adapter = acm_adapter(tx_framesize, tx_code_rate, tx_constellation, dvbs2.PILOTS_ON, 0, dvbs2.RO_0_20)
+        self.encoder_bch = dvbs2.bch_bb()
+        self.encoder_ldpc = dvbs2.ldpc_bb()
+        self.interleaver = dvbs2.interleaver_bb()
+        self.modulator = dvbs2.modulator_bc()
 
         self.noise_source = analog.fastnoise_source_c(analog.GR_GAUSSIAN, sqrt(N0), 0, 8192)
         self.add_noise = blocks.add_cc()

@@ -1,6 +1,6 @@
 from textwrap import fill
-from gnuradio import dtv
 from gnuradio.dvbs2rx import defs
+import dvbs2
 
 
 def _adjust_case(standard, frame_size, constellation):
@@ -144,8 +144,7 @@ def translate(standard,
     if (not valid):
         raise ValueError("Invalid {} parameters".format(standard))
 
-    t_standard = eval("dtv." + defs.standards[standard])
-    t_frame_size = eval("dtv." + defs.frame_sizes[frame_size])
+    t_frame_size = eval("dvbs2." + defs.frame_sizes[frame_size])
 
     # The LDPC code rate definition may depend on the chosen frame size and
     # VL-SNR mode
@@ -161,24 +160,24 @@ def translate(standard,
                 found = True
                 break
         assert (found)  # It should be found here (_validate guarantees that)
-        t_code = eval("dtv." + defs.ldpc_codes[code]['def'][idx])
+        t_code = eval("dvbs2." + defs.ldpc_codes[code]['def'][idx])
     else:
-        t_code = eval("dtv." + defs.ldpc_codes[code]['def'])
+        t_code = eval("dvbs2." + defs.ldpc_codes[code]['def'])
 
     # Resulting tuple with definitions
-    res = (t_standard, t_frame_size, t_code)
+    res = (t_frame_size, t_code)
 
     if constellation is not None:
-        t_constellation = eval("dtv." +
+        t_constellation = eval("dvbs2." +
                                defs.constellations[constellation]['def'])
         res += (t_constellation, )
 
     if rolloff is not None:
-        t_rolloff = eval("dtv." + defs.rolloffs[rolloff]['def'])
+        t_rolloff = eval("dvbs2." + defs.rolloffs[rolloff]['def'])
         res += (t_rolloff, )
 
     if pilots is not None:
-        t_pilots = eval("dtv." + defs.pilots[bool(pilots)])
+        t_pilots = eval("dvbs2." + defs.pilots[bool(pilots)])
         res += (t_pilots, )
 
     return res
