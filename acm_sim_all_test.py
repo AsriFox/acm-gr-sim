@@ -98,12 +98,12 @@ if __name__ == '__main__':
 
     import random
     modcods = {
-        # 'QPSK_1/4': -2.35,
-        # 'QPSK_1/3': -1.24,
-        # 'QPSK_2/5': -0.3,
-        # 'QPSK_1/2':  1.0,
-        # 'QPSK_3/5':  2.23,
-        # 'QPSK_2/3':  3.10,
+        'QPSK_1/4': -2.35,
+        'QPSK_1/3': -1.24,
+        'QPSK_2/5': -0.3,
+        'QPSK_1/2':  1.0,
+        'QPSK_3/5':  2.23,
+        'QPSK_2/3':  3.10,
         'QPSK_3/4':  4.03,
         'QPSK_4/5':  4.68,
         'QPSK_5/6':  5.18,
@@ -118,11 +118,14 @@ if __name__ == '__main__':
     }
     if options.acm:
         avg_rate = 0.0
-        n_test_runs = 20
+        n_test_runs = 400
         for _ in range(n_test_runs):
-            esn0_db = (random.random() * 13.0) - 2.0
+            esn0_db = random.uniform(-2, 14)
             print('SNR: ' + str(esn0_db))
-            modcod = min(modcods.items(), key=lambda x: abs(x[1] - esn0_db))[0]
+            modcod = min(
+                [x for x in modcods.items() if x[1] < esn0_db], 
+                key=lambda x: abs(x[1] - esn0_db)
+            )[0]
             print('Selected MODCOD: ' + modcod)
             ts.test_case(esn0_db, modcod)
             ts.wait()
@@ -132,10 +135,18 @@ if __name__ == '__main__':
             effrate = rate * (1.0 - ber)
             print('Effective throughput: ' + str(effrate))
             avg_rate += effrate
+
+        ts.writer.writerow({
+            'modcod': 'average', 
+            'snr': '-2..14',
+            'ber': '',
+            'rate': '',
+            'effrate': avg_rate / n_test_runs
+        })
         print('Average effective throughput: ' + str(avg_rate / n_test_runs))
     else:
         # Test CCM:
-        for esn0_db in range(5, 11):
+        for esn0_db in range(-2, 14):
             for modcod in modcods.keys():
                 ts.test_case(esn0_db, modcod)
                 ts.wait()
