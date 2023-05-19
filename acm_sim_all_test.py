@@ -71,6 +71,12 @@ if __name__ == '__main__':
     parser.add_argument(
         "--acm", dest="acm", action='store_true',
         help="Test ACM performance [default=False]")
+    parser.add_argument(
+        "-m", "--min-snr", dest="snr_min", type=float, default=-2,
+        help="Set the minimum SNR [default=%(default)r]")
+    parser.add_argument(
+        "-M", "--max-snr", dest="snr_max", type=float, default=14,
+        help="Set the maximum SNR [default=%(default)r]")
 
     options = parser.parse_args()
     table_path = options.table_path
@@ -106,9 +112,9 @@ if __name__ == '__main__':
     }
     if options.acm:
         avg_rate = 0.0
-        n_test_runs = 400
+        n_test_runs = 100
         for _ in range(n_test_runs):
-            esn0_db = random.uniform(-2, 14)
+            esn0_db = random.uniform(snr_min, snr_max)
             print('SNR: ' + str(esn0_db))
             modcod = min(
                 [x for x in modcods.items() if x[1] < esn0_db], 
@@ -132,7 +138,7 @@ if __name__ == '__main__':
         print('Average effective throughput: ' + str(avg_rate / n_test_runs))
     else:
         # Test CCM:
-        for esn0_db in range(-2, 14):
+        for esn0_db in range(int(snr_min), int(snr_max) + 1):
             for modcod in modcods.keys():
                 results = test_case(sym_rate, esn0_db, frame_size, modcod, test_size)
                 store_results(writer, *results)
