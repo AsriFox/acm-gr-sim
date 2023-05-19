@@ -38,17 +38,12 @@ class acm_sim_fec_ber(gr.top_block):
         ##################################################
         self.random_source = analog.random_uniform_source_b(0, 256, 0)
         self.test_limiter = blocks.head(gr.sizeof_char*1, test_size)
+        self.test_limiter.set_min_output_buffer(64800*32)
         self.tx_hier = tx_hier(frame_size, modcod)
         self.noise_source = analog.fastnoise_source_c(analog.GR_GAUSSIAN, sqrt(N0), 0, 8192)
         self.add_noise = blocks.add_cc()
         self.throttle = blocks.throttle(gr.sizeof_gr_complex*1, sym_rate, ignore_tags=True)
         self.rx_hier = rx_hier(frame_size, modcod)
-
-        self.buffer_in = blocks.throttle(gr.sizeof_char*1, sym_rate*4, ignore_tags=True)
-        self.buffer_in.set_min_output_buffer(64800*32)
-        self.buffer_out = blocks.throttle(gr.sizeof_char*1, sym_rate*4, ignore_tags=True)
-        self.buffer_out.set_min_output_buffer(64800*32)
-
         self.count_ber = fec.ber_bf(False, 100, -7.0)
         self.probe_ber = blocks.probe_signal_f()
         def _ber_probe():
@@ -80,12 +75,16 @@ class acm_sim_fec_ber(gr.top_block):
         self.connect((self.throttle, 0), (self.rx_hier, 0))
         self.connect((self.rx_hier, 0), (self.probe_rate, 0))
         # self.msg_connect((self.probe_rate, 'rate'), (self.print_rate, 'print'))
-        self.connect((self.rx_hier, 0), (self.buffer_out, 0))
-        self.connect((self.test_limiter, 0), (self.buffer_in, 0))
-        
-        self.connect((self.buffer_in, 0), (self.count_ber, 0))
-        self.connect((self.buffer_out, 0), (self.count_ber, 1))
+        self.connect((self.test_limiter, 0), (self.count_ber, 0))
+        self.connect((self.rx_hier, 0), (self.count_ber, 1))
         self.connect((self.count_ber, 0), (self.probe_ber, 0))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, ex_type, ex_value, traceback):
+        self.stop()
+        self.wait()
 
     def get_modcod(self):
         return self.modcod
