@@ -1,58 +1,54 @@
 from acm_sim_fec_ber import acm_sim_fec_ber
 import csv
 
-class test_suite():
-    def __init__(self, table_path: str, sym_rate=1000000, frame_size='normal', test_size=2000000):
-        self.sym_rate = sym_rate
-        self.frame_size = frame_size
-        self.test_size = test_size
-        self.table_path = table_path
-        self.columns = ['modcod', 'snr', 'ber', 'rate', 'effrate']
-        self.table = open(table_path, mode='a', newline='')
-        self.writer = csv.DictWriter(self.table, fieldnames=self.columns)
-        self.writer.writeheader()
+def store_results(writer: csv.DictWriter, modcod, snr, ber, rate):
+    writer.writerow({
+        'modcod': modcod, 
+        'snr': snr,
+        'ber': ber,
+        'rate': rate,
+        'effrate': rate * (1.0 - ber)
+    })
 
-    def __del__(self):
-        self.table.close()
+def print_results(modcod, snr, ber, rate):
+    print()
+    print(f'MODCOD: {modcod} | SNR: {snr}')
+    print(f'Throughput: {rate} | BER: {ber}')
+    print(f'Effective throughput: {rate * (1.0 - ber)}') 
 
-    def test_case(self, esn0_db, modcod):
-        self.tb = acm_sim_fec_ber(
-            sym_rate=self.sym_rate, 
-            esn0_db=esn0_db, 
-            frame_size=self.frame_size, 
-            modcod=modcod, 
-            test_size=self.test_size)
-        self.tb.start()
+import sys, signal
+def test_case(sym_rate, esn0_db, frame_size, modcod, test_size):
+    snr = None
+    ber = None
+    rate = None
 
-    def stop(self):
-        if self.tb is not None:
-            self.tb.stop()
-    
-    def wait(self):
-        if self.tb is not None:
-            self.tb.wait()
+    with acm_sim_fec_ber(sym_rate, esn0_db, frame_size, modcod, test_size) as tb:
+        
+        def sig_handler(sig=None, frame=None):
+            print('Interrupted!')
+            tb.stop()
+            tb.wait()
+            print_results(
+                tb.get_modcod(), 
+                tb.get_detected_snr(), 
+                10 ** (0.1 * tb.get_ber()), 
+                tb.get_rate()
+            )
+            global table
+            table.close()
+            sys.exit(0)
+        
+        signal.signal(signal.SIGINT, sig_handler)
+        signal.signal(signal.SIGTERM, sig_handler)
 
-    def print_results(self):
-        if self.tb is not None:
-            ber = 10 ** (0.1 * self.tb.get_ber())
-            rate = self.tb.get_rate()
-            print()
-            print('Detected SNR: ' + str(self.tb.get_detected_snr()))
-            print('Throughput: ' + str(rate))
-            print('BER: ' + str(ber))
-            print('Effective throughput: ' + str(rate * (1.0 - ber)))
+        tb.start()
+        tb.wait()
 
-    def store_results(self):
-        if self.tb is not None:
-            ber = 10 ** (0.1 * self.tb.get_ber())
-            rate = self.tb.get_rate()
-            self.writer.writerow({
-                'modcod': self.tb.get_modcod(), 
-                'snr': self.tb.get_detected_snr(),
-                'ber': ber,
-                'rate': rate,
-                'effrate': rate * (1.0 - ber)
-            })
+        snr = tb.get_detected_snr()
+        ber = 10 ** (0.1 * tb.get_ber())
+        rate = tb.get_rate()
+
+    return (modcod, snr, ber, rate)
 
 if __name__ == '__main__':
     from argparse import ArgumentParser
@@ -77,24 +73,16 @@ if __name__ == '__main__':
         help="Test ACM performance [default=False]")
 
     options = parser.parse_args()
-    ts = test_suite(
-        options.table_path,
-        sym_rate=options.sym_rate,
-        frame_size=options.frame_size,
-        test_size=options.test_size)
-    
-    import sys, signal
-    def sig_handler(sig=None, frame=None):
-        global ts
-        print('Interrupted!')
-        ts.stop()
-        ts.wait()
-        ts.print_results()
-        del ts
-        sys.exit(0)
+    table_path = options.table_path
+    sym_rate = options.sym_rate
+    frame_size = options.frame_size
+    test_size = options.test_size
+    snr_min = options.snr_min
+    snr_max = options.snr_max
 
-    signal.signal(signal.SIGINT, sig_handler)
-    signal.signal(signal.SIGTERM, sig_handler)
+    table = open(table_path, mode='a', newline='')
+    writer = csv.DictWriter(table, fieldnames=['modcod', 'snr', 'ber', 'rate', 'effrate'])
+    writer.writeheader()
 
     import random
     modcods = {
@@ -127,16 +115,14 @@ if __name__ == '__main__':
                 key=lambda x: abs(x[1] - esn0_db)
             )[0]
             print('Selected MODCOD: ' + modcod)
-            ts.test_case(esn0_db, modcod)
-            ts.wait()
-            ts.store_results()
-            ber = 10 ** (0.1 * ts.tb.get_ber())
-            rate = ts.tb.get_rate()
-            effrate = rate * (1.0 - ber)
-            print('Effective throughput: ' + str(effrate))
+            results = test_case(sym_rate, esn0_db, frame_size, modcod, test_size)
+            store_results(writer, *results)
+            # _, _, ber, rate = results
+            effrate = results[3] * (1.0 - results[2])
+            print(f'Effective throughput: {effrate}')
             avg_rate += effrate
 
-        ts.writer.writerow({
+        writer.writerow({
             'modcod': 'average', 
             'snr': '-2..14',
             'ber': '',
@@ -148,8 +134,8 @@ if __name__ == '__main__':
         # Test CCM:
         for esn0_db in range(-2, 14):
             for modcod in modcods.keys():
-                ts.test_case(esn0_db, modcod)
-                ts.wait()
-                ts.store_results()
-                ts.print_results()
-    del ts
+                results = test_case(sym_rate, esn0_db, frame_size, modcod, test_size)
+                store_results(writer, *results)
+                print_results(*results)
+
+    table.close()
